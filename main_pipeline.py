@@ -35,7 +35,7 @@ def load_database(db_path):
     return db, voxel_size
 
 
-def run_matching(scan_path, db_path="feature_db.pkl", top_k=10, verbose=True):
+def run_matching(scan_path, db_path="feature_db.pkl", top_k=99, verbose=True):
     """
     完整匹配流程
 
@@ -50,6 +50,7 @@ def run_matching(scan_path, db_path="feature_db.pkl", top_k=10, verbose=True):
     """
     # ====== 数据加载（不计入匹配耗时） ======
     db, voxel_size = load_database(db_path)
+    print(f"  粗筛数量: {top_k}")
 
     if verbose:
         print(f"\n正在预处理扫描数据: {scan_path}")
@@ -132,17 +133,17 @@ def main():
         "--scan", type=str, required=True, help="扫描数据文件路径 (.ply/.pcd)"
     )
     parser.add_argument(
-        "--db", type=str, default="feature_db.pkl", help="特征数据库路径"
+        "--db", type=str, default="feature_db_100_v10.pkl", help="特征数据库路径"
     )
     parser.add_argument(
-        "--top_k", type=int, default=10, help="粗筛候选数量（默认10）"
+        "--top_k", type=int, default=200, help="粗筛候选数量（默认99，对全部模型配准）"
     )
     parser.add_argument(
-        "--quiet", action="store_true", help="静默模式，减少输出"
+        "--verbose", type=bool, default=True, help="详细输出模式"
     )
     args = parser.parse_args()
 
-    result = run_matching(args.scan, args.db, args.top_k, verbose=not args.quiet)
+    result = run_matching(args.scan, args.db, args.top_k, verbose=args.verbose)
     return result
 
 
