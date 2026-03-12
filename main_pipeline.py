@@ -25,13 +25,10 @@ from fine_matching import fine_match
 
 def load_database(db_path):
     """加载预构建的特征数据库"""
-    print(f"正在加载特征数据库: {db_path}")
     with open(db_path, "rb") as f:
         db = pickle.load(f)
-    print(f"  模型数量: {len(db['paths'])}")
-    print(f"  描述符维度: {db['global_matrix'].shape[1]}")
     voxel_size = db.get("voxel_size", VOXEL_SIZE)
-    print(f"  体素大小: {voxel_size}")
+    print(f"正在加载特征数据库: {db_path}.  模型数量: {len(db['paths'])}  描述符维度: {db['global_matrix'].shape[1]}  体素大小: {voxel_size}")
     return db, voxel_size
 
 

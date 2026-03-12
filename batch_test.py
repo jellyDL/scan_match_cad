@@ -2,7 +2,7 @@ import os
 from main_pipeline import run_matching
 
 
-def evaluate_accuracy(db_path="feature_db.pkl", top_k=99, scan_dir=None):
+def evaluate_accuracy(db_path="feature_db.pkl", top_k=99, scan_dir=None, verbose=False):
     
     scan_files = sorted(
         [f for f in os.listdir(scan_dir) if f.lower().endswith('.stl')]
@@ -12,9 +12,9 @@ def evaluate_accuracy(db_path="feature_db.pkl", top_k=99, scan_dir=None):
     for iter, scan_file in enumerate(scan_files):
         scan_path = os.path.join(scan_dir, scan_file)
         print(f"\n测试 {iter+1}/{len(scan_files)}: {scan_file}")
-        result = run_matching(scan_path, db_path, top_k, verbose=False)
+        result = run_matching(scan_path, db_path, top_k, verbose)
         if result["best_path"].split("/")[-1] == scan_file:
-            print("Mathch Success!")
+            print(f"【 Match Success! 】Fitness: {result['fitness']:.4f}")
             match_num += 1
         else:
             print("Match Failed!")
@@ -34,9 +34,12 @@ def main():
     parser.add_argument(
         "--top_k", type=int, default=200, help="粗筛候选数量"
     )
+    parser.add_argument(
+        "--verbose", type=bool, default=False, help="详细输出模式"
+    )
     args = parser.parse_args()
 
-    evaluate_accuracy(args.db, args.top_k, args.scan_dir)
+    evaluate_accuracy(args.db, args.top_k, args.scan_dir, args.verbose)
 
 if __name__ == "__main__":
     main()
