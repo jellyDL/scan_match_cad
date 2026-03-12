@@ -88,7 +88,7 @@ def fine_match_all(scan_down, scan_fpfh, db, voxel_size, coarse_distances=None):
                     best_idx = idx
                     best_transform = icp_result.transformation
 
-            if (idx + 1) % 20 == 0:
+            if (idx + 1) % 50 == 0:
                 print(f"    已完成 {idx+1}/{n_models} 个模型")
 
         except Exception as e:
