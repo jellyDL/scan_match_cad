@@ -196,8 +196,10 @@ class CoarseMatcher:
         cos_indices = cos_indices[0]
         cos_similarities = cos_similarities[0]
 
-        # 方法1: RRF融合（更鲁棒）
-        rrf_k = 60  # RRF参数
+        # ===== 改进的融合策略 =====
+
+        # 方法1: RRF融合（更鲁棒）- 使用更大的k值使排名差异更明显
+        rrf_k = 30  # 减小k值使排名差异更明显
         rrf_scores = np.zeros(self.n_models)
 
         # L2距离的RRF分数（距离越小越好，所以用倒数）
@@ -208,24 +210,40 @@ class CoarseMatcher:
         for rank, idx in enumerate(cos_indices):
             rrf_scores[idx] += 1.0 / (rrf_k + rank + 1)
 
-        # 方法2: 加权分数融合
-        # L2距离排名（越小越好）
+        # 方法2: 基于分数的融合（使用实际距离/相似度值）
+        # 归一化L2距离到[0,1]
+        l2_scores = 1.0 - (l2_distances / (l2_distances.max() + 1e-10))
+
+        # 余弦相似度已经在[0,1]范围
+        cos_scores = cos_similarities
+
+        # 综合两种相似度
+        combined_similarities = 0.5 * l2_scores + 0.5 * cos_scores
+
+        # 创建基于分数的排名
+        score_ranked_indices = np.argsort(combined_similarities)[::-1]
+        score_ranks = np.zeros(self.n_models)
+        score_ranks[score_ranked_indices] = np.arange(1, self.n_models + 1)
+        score_ranks_norm = score_ranks / self.n_models
+
+        # 方法3: 加权分数融合（基于排名）
         l2_ranks = np.zeros(self.n_models)
         l2_ranks[l2_indices] = np.arange(1, self.n_models + 1)
 
-        # 余弦相似度排名（越大越好）
         cos_ranks = np.zeros(self.n_models)
         cos_ranks[cos_indices] = np.arange(1, self.n_models + 1)
 
-        # 归一化排名到[0,1]
         l2_ranks_norm = l2_ranks / self.n_models
         cos_ranks_norm = cos_ranks / self.n_models
 
-        # 加权融合分数（越小越好）
         fusion_scores = self.l2_weight * l2_ranks_norm + self.cosine_weight * cos_ranks_norm
 
-        # 综合RRF和加权分数
-        combined_scores = 0.5 * rrf_scores / (rrf_scores.max() + 1e-10) + 0.5 * (1 - fusion_scores)
+        # 综合多种融合方法
+        combined_scores = (
+            0.4 * rrf_scores / (rrf_scores.max() + 1e-10) +
+            0.3 * (1 - fusion_scores) +
+            0.3 * (1 - score_ranks_norm)
+        )
 
         # 获取top_k
         top_indices = np.argsort(combined_scores)[::-1][:top_k]

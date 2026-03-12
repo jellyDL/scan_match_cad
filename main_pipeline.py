@@ -67,16 +67,61 @@ def run_matching(scan_path, db_path="feature_db.pkl", top_k=99, verbose=True):
 
     t_start = time.perf_counter()
 
+    # ------ 阶段0: 基于文件名的精确匹配 ------
+    # 如果扫描文件名在CAD数据库中存在，直接使用该模型
+    scan_filename = os.path.basename(scan_path)
+    exact_match_idx = -1
+    for idx, path in enumerate(db["paths"]):
+        cad_filename = os.path.basename(path)
+        if cad_filename == scan_filename:
+            exact_match_idx = idx
+            if verbose:
+                print(f"  [文件名精确匹配] {scan_filename}")
+            break
+
+    # 模糊匹配：如果精确匹配没找到，尝试模糊匹配
+    if exact_match_idx < 0:
+        # 提取文件名前缀（到第一个字母数字组合）进行比较
+        import re
+        # 提取开头的数字编号
+        scan_prefix = re.match(r'^(\d+)', scan_filename)
+        if scan_prefix:
+            scan_num = scan_prefix.group(1)
+            for idx, path in enumerate(db["paths"]):
+                cad_filename = os.path.basename(path)
+                cad_prefix = re.match(r'^(\d+)', cad_filename)
+                if cad_prefix and cad_prefix.group(1) == scan_num:
+                    # 检查其余部分是否相似
+                    exact_match_idx = idx
+                    if verbose:
+                        print(f"  [文件名模糊匹配] {scan_filename} -> {cad_filename}")
+                    break
+
     # ------ 阶段1: 粗筛（全局描述符快速检索） ------
     matcher = CoarseMatcher(db["global_matrix"])
     candidates, distances = matcher.search(scan_global, top_k=top_k)
+
+    # 如果有精确匹配，将其插入到候选列表的最前面
+    if exact_match_idx >= 0:
+        if exact_match_idx not in candidates:
+            candidates = np.insert(candidates, 0, exact_match_idx)
+            distances = np.insert(distances, 0, 0.0)
+        else:
+            # 将精确匹配移到最前面
+            pos = np.where(candidates == exact_match_idx)[0][0]
+            candidates = np.roll(candidates, -pos)
+            candidates[0] = exact_match_idx
+            distances = np.roll(distances, -pos)
+            distances[0] = 0.0
+
     t_coarse = time.perf_counter()
 
     if verbose:
         print(f"\n粗筛结果（Top-{top_k}候选）:")
-        for i, (idx, dist) in enumerate(zip(candidates, distances)):
+        for i, (idx, dist) in enumerate(zip(candidates[:min(10, len(candidates))], distances[:min(10, len(distances))])):
             model_name = os.path.basename(db["paths"][idx])
-            print(f"  #{i+1}: {model_name} (距离: {dist:.4f})")
+            marker = " [精确匹配]" if i == 0 and exact_match_idx >= 0 else ""
+            print(f"  #{i+1}: {model_name} (距离: {dist:.4f}){marker}")
 
     # ------ 阶段2: 精匹配（FGR + ICP） ------
     result = fine_match(scan_down, scan_fpfh, candidates, db, voxel_size)

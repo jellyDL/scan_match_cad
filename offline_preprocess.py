@@ -48,7 +48,171 @@ def compute_d2_distribution(points, n_samples=1000, n_bins=20):
     return hist
 
 
+def compute_d1_distribution(points, n_samples=500, n_bins=15):
+    """
+    计算D1形状分布特征 - 点到参考点的距离分布
+    对齿科修复体更敏感
+    """
+    n_points = len(points)
+    if n_points < 2:
+        return np.zeros(n_bins)
+
+    # 使用质心作为参考点
+    centroid = points.mean(axis=0)
+
+    # 随机采样点
+    sample_idx = np.random.choice(n_points, min(n_samples, n_points), replace=False)
+    sample_points = points[sample_idx]
+
+    # 计算到质心的距离
+    distances = np.linalg.norm(sample_points - centroid, axis=1)
+
+    # 计算直方图
+    hist, _ = np.histogram(distances, bins=n_bins, range=(0, distances.max() + 1e-6))
+    hist = hist.astype(np.float32) / (hist.sum() + 1e-10)
+
+    return hist
+
+
+def compute_height_distribution(points, n_bins=15):
+    """
+    计算高度分布特征 - 对牙冠等分层结构敏感
+    """
+    if len(points) < 2:
+        return np.zeros(n_bins)
+
+    # 使用主成分分析确定主方向
+    centered = points - points.mean(axis=0)
+    cov = np.cov(centered.T)
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+    principal_axis = eigenvectors[:, np.argmax(eigenvalues)]
+
+    # 计算沿主方向的高度投影
+    heights = np.dot(points, principal_axis)
+
+    hist, _ = np.histogram(heights, bins=n_bins)
+    hist = hist.astype(np.float32) / (hist.sum() + 1e-10)
+
+    return hist
+
+
+def compute_voxel_grid_histogram(points, grid_size=5):
+    """
+    计算体素网格直方图特征 - 对点云的空间分布更敏感
+    """
+    if len(points) < 2:
+        return np.zeros(grid_size ** 3)
+
+    # 归一化到[-1, 1]
+    bbox = points.max(axis=0) - points.min(axis=0)
+    center = points.mean(axis=0)
+    normalized = (points - center) / (bbox.max() / 2 + 1e-10)
+    normalized = np.clip(normalized, -1, 1)
+
+    # 分配到网格
+    indices = ((normalized + 1) * grid_size / 2).astype(int)
+    indices = np.clip(indices, 0, grid_size - 1)
+
+    # 计算3D直方图
+    hist = np.zeros(grid_size ** 3)
+    for idx in indices:
+        idx_flat = idx[0] * grid_size ** 2 + idx[1] * grid_size + idx[2]
+        hist[idx_flat] += 1
+
+    hist = hist / (hist.sum() + 1e-10)
+    return hist
+
+
+def compute_pca_histogram(points, n_bins=10):
+    """
+    计算PCA特征值的直方图特征 - 捕捉形状的各向异性
+    """
+    if len(points) < 4:
+        return np.zeros(6)
+
+    centered = points - points.mean(axis=0)
+    cov = np.cov(centered.T)
+
+    try:
+        eigenvalues = np.linalg.eigvalsh(cov)
+        eigenvalues = np.sort(eigenvalues)[::-1]
+
+        # 归一化特征值
+        total = eigenvalues.sum()
+        eigenvalues_norm = eigenvalues / (total + 1e-10)
+
+        # 特征：特征值比值
+        ratios = np.array([
+            eigenvalues_norm[0] / (eigenvalues_norm[1] + 1e-10),
+            eigenvalues_norm[1] / (eigenvalues_norm[2] + 1e-10),
+            eigenvalues_norm[0] / (eigenvalues_norm[2] + 1e-10),
+            eigenvalues[0] / (eigenvalues.sum() + 1e-10),
+            eigenvalues[1] / (eigenvalues.sum() + 1e-10),
+            eigenvalues[2] / (eigenvalues.sum() + 1e-10),
+        ])
+
+        return ratios
+    except:
+        return np.zeros(6)
+
+
 def compute_local_point_density(points, radii=[0.5, 1.0, 2.0]):
+    """
+    计算局部点密度特征 - 多尺度密度
+    """
+    from scipy.spatial import KDTree
+
+    if len(points) < 10:
+        return np.zeros(len(radii) * 3)
+
+    tree = KDTree(points)
+    densities = []
+
+    for radius in radii:
+        counts = tree.query_ball_tree(tree, r=radius)
+        counts = np.array([len(c) - 1 for c in counts])
+
+        densities.extend([
+            counts.mean(),
+            counts.std(),
+            counts.max()
+        ])
+
+    return np.array(densities)
+
+
+def compute_local_density_variance(points, n_samples=500):
+    """
+    计算局部密度方差 - 对扫描数据的缺失更敏感
+    """
+    from scipy.spatial import KDTree
+
+    if len(points) < 10:
+        return np.zeros(4)
+
+    # 随机采样
+    if len(points) > n_samples:
+        idx = np.random.choice(len(points), n_samples, replace=False)
+        sample_points = points[idx]
+    else:
+        sample_points = points
+
+    tree = KDTree(points)
+
+    # 计算每个采样点的局部密度
+    densities = []
+    for pt in sample_points:
+        neighbors = tree.query_ball_point(pt, r=1.0)
+        densities.append(len(neighbors))
+
+    densities = np.array(densities)
+
+    return np.array([
+        densities.mean(),
+        densities.std(),
+        densities.var(),
+        np.percentile(densities, 90) / (np.percentile(densities, 10) + 1e-10)  # 密度对比度
+    ])
     """
     计算局部点密度特征 - 多尺度密度
 
@@ -78,6 +242,63 @@ def compute_local_point_density(points, radii=[0.5, 1.0, 2.0]):
         ])
 
     return np.array(densities)
+
+
+def compute_surface_area_to_volume_ratio(points, triangles=None):
+    """
+    计算表面积与体积比近似（用于区分蜡型/牙冠等）
+    使用凸包近似
+    """
+    from scipy.spatial import ConvexHull
+
+    if len(points) < 4:
+        return np.zeros(3)
+
+    try:
+        hull = ConvexHull(points)
+        volume = hull.volume
+        surface_area = hull.area
+
+        # 避免除零
+        if volume < 1e-10:
+            return np.array([0.0, surface_area, 0.0])
+
+        ratio = surface_area / (volume ** (2/3))  # 归一化
+        return np.array([ratio, surface_area, volume])
+    except:
+        return np.zeros(3)
+
+
+def compute_boundary_ratio(points):
+    """
+    计算边界点比例 - 牙冠边缘特征
+    """
+    from scipy.spatial import KDTree
+
+    if len(points) < 10:
+        return np.zeros(4)
+
+    tree = KDTree(points)
+    n_boundary = 0
+    boundary_dists = []
+
+    # 边界点：在一定距离内邻居较少的点
+    for i, pt in enumerate(points):
+        neighbors = tree.query_ball_point(pt, r=1.0)
+        n_neighbors = len(neighbors) - 1
+        if n_neighbors < 5:  # 阈值可调
+            n_boundary += 1
+        boundary_dists.append(n_neighbors)
+
+    boundary_ratio = n_boundary / len(points)
+    boundary_dists = np.array(boundary_dists)
+
+    return np.array([
+        boundary_ratio,
+        np.mean(boundary_dists),
+        np.std(boundary_dists),
+        np.max(boundary_dists)
+    ])
 
 
 def compute_distance_to_centroid_stats(points):
@@ -274,6 +495,27 @@ def preprocess_and_extract_features(pcd_path, voxel_size=VOXEL_SIZE):
         hausdorff_approx.max()
     ])
 
+    # 13. D1形状分布特征（点到质心距离）
+    d1_hist = compute_d1_distribution(points, n_bins=15)
+
+    # 14. 高度分布特征
+    height_hist = compute_height_distribution(points, n_bins=15)
+
+    # 15. 表面积与体积比
+    area_vol_ratio = compute_surface_area_to_volume_ratio(points)
+
+    # 16. 边界点比例
+    boundary_feat = compute_boundary_ratio(points)
+
+    # 17. 体素网格直方图
+    voxel_hist = compute_voxel_grid_histogram(points, grid_size=4)
+
+    # 18. PCA特征值比值
+    pca_ratios = compute_pca_histogram(points)
+
+    # 19. 局部密度方差
+    density_variance = compute_local_density_variance(points)
+
     # 组合所有特征
     global_descriptor = np.concatenate([
         mean_feat, std_feat, max_feat, min_feat, median_feat, skew_feat, kurt_feat,  # 231维
@@ -284,7 +526,14 @@ def preprocess_and_extract_features(pcd_path, voxel_size=VOXEL_SIZE):
         curvature_stats,  # 12维
         quantiles,  # 198维 (33*6)
         energy_feat,  # 33维
-        hausdorff_feat  # 3维
+        hausdorff_feat,  # 3维
+        d1_hist,  # 15维
+        height_hist,  # 15维
+        area_vol_ratio,  # 3维
+        boundary_feat,  # 4维
+        voxel_hist,  # 64维 (4^3)
+        pca_ratios,  # 6维
+        density_variance  # 4维
     ])
 
     return pcd_down, fpfh, global_descriptor

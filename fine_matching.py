@@ -138,6 +138,9 @@ def fine_match_candidates(scan_down, scan_fpfh, candidates, db, voxel_size):
     best_transform = None
     all_results = []
 
+    # 记录粗筛排名，用于综合评分
+    coarse_rank_map = {idx: rank for rank, idx in enumerate(candidates)}
+
     for rank, idx in enumerate(candidates):
         cad_down_np = db["downsampled"][idx]
         cad_down = o3d.geometry.PointCloud()
@@ -154,18 +157,27 @@ def fine_match_candidates(scan_down, scan_fpfh, candidates, db, voxel_size):
             fgr_result = fast_global_registration(scan_down, cad_down, scan_fpfh, cad_fpfh, voxel_size)
             icp_result = refine_with_icp(scan_down, cad_down, fgr_result.transformation, voxel_size)
 
+            # 综合评分：fitness权重高，但也要考虑粗筛排名
+            coarse_rank = coarse_rank_map[idx]
+            coarse_weight = 0.1 * (1 - coarse_rank / len(candidates))  # 粗筛排名越高，权重越大
+
+            combined_score = icp_result.fitness + coarse_weight
+
             result_info = {
                 "rank": rank,
                 "index": idx,
                 "path": db["paths"][idx],
                 "fitness": icp_result.fitness,
                 "rmse": icp_result.inlier_rmse,
+                "combined_score": combined_score,
+                "coarse_rank": coarse_rank,
                 "transformation": icp_result.transformation,
             }
             all_results.append(result_info)
 
-            if icp_result.fitness > best_fitness or (icp_result.fitness == best_fitness and icp_result.inlier_rmse < best_rmse):
-                best_fitness = icp_result.fitness
+            # 使用综合评分选择最佳匹配
+            if combined_score > best_fitness or (abs(combined_score - best_fitness) < 0.001 and icp_result.inlier_rmse < best_rmse):
+                best_fitness = combined_score
                 best_rmse = icp_result.inlier_rmse
                 best_idx = idx
                 best_transform = icp_result.transformation
@@ -177,16 +189,32 @@ def fine_match_candidates(scan_down, scan_fpfh, candidates, db, voxel_size):
                 "path": db["paths"][idx],
                 "fitness": 0.0,
                 "rmse": float("inf"),
+                "combined_score": 0.0,
             })
 
     if best_idx == -1:
         best_idx = candidates[0]
 
+    # 回退机制：当最佳和次佳fitness非常接近时，参考粗筛结果
+    if len(all_results) >= 2:
+        sorted_results = sorted(all_results, key=lambda x: (-x["fitness"], x["rmse"]))
+        top1_fitness = sorted_results[0]["fitness"]
+        top2_fitness = sorted_results[1]["fitness"]
+
+        # 如果fitness差距小于0.005，优先选择粗筛排名更靠前的
+        if top1_fitness - top2_fitness < 0.005:
+            if sorted_results[1]["coarse_rank"] < sorted_results[0]["coarse_rank"]:
+                # 交换选择
+                best_idx = sorted_results[1]["index"]
+                best_fitness = sorted_results[1]["fitness"]
+                best_rmse = sorted_results[1]["rmse"]
+                best_transform = sorted_results[1].get("transformation")
+
     return {
         "best_index": best_idx,
         "best_path": db["paths"][best_idx],
-        "fitness": best_fitness,
-        "rmse": best_rmse,
+        "fitness": best_fitness if best_idx >= 0 else 0.0,
+        "rmse": best_rmse if best_idx >= 0 else float("inf"),
         "transformation": best_transform,
         "all_results": sorted(all_results, key=lambda x: (-x["fitness"], x["rmse"])),
     }
