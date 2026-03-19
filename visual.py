@@ -100,24 +100,48 @@ class DualViewportVisualizer:
         self.should_exit = True
         return False
 
+    # def on_rename(self, vis):
+    #     """T键重命名回调 - 将左侧文件重命名为右侧文件名"""
+    #     print(f"\n[T] 键按下 - 重命名文件")
+    #     # 获取右侧文件（CAD）的文件名
+    #     cad_filename = os.path.basename(self.mesh2_path)
+    #     # 构建新路径：左侧文件所在目录 + 右侧文件名
+    #     dir_path = os.path.dirname(self.mesh1_path)
+    #     new_path = os.path.join(dir_path, cad_filename)
+
+    #     print(f"  原文件: {self.mesh1_path}")
+    #     print(f"  新文件: {new_path}")
+
+    #     try:
+    #         if self.mesh1_path != new_path:
+    #             os.rename(self.mesh1_path, new_path)
+    #             print("✓ 重命名成功!")
+    #             # 更新路径
+    #             self.mesh1_path = new_path
+    #         else:
+    #             print("  文件名相同，无需重命名")
+    #     except Exception as e:
+    #         print(f"✗ 重命名失败: {e}")
+    #     return True
+
     def on_rename(self, vis):
         """T键重命名回调 - 将左侧文件重命名为右侧文件名"""
         print(f"\n[T] 键按下 - 重命名文件")
         # 获取右侧文件（CAD）的文件名
-        cad_filename = os.path.basename(self.mesh2_path)
+        scan_filename = os.path.basename(self.mesh1_path)
         # 构建新路径：左侧文件所在目录 + 右侧文件名
-        dir_path = os.path.dirname(self.mesh1_path)
-        new_path = os.path.join(dir_path, cad_filename)
+        dir_path = os.path.dirname(self.mesh2_path)
+        new_path = os.path.join(dir_path, scan_filename)
 
-        print(f"  原文件: {self.mesh1_path}")
+        print(f"  原文件: {self.mesh2_path}")
         print(f"  新文件: {new_path}")
 
         try:
-            if self.mesh1_path != new_path:
-                os.rename(self.mesh1_path, new_path)
+            if self.mesh2_path != new_path:
+                os.rename(self.mesh2_path, new_path)
                 print("✓ 重命名成功!")
                 # 更新路径
-                self.mesh1_path = new_path
+                self.mesh2_path = new_path
             else:
                 print("  文件名相同，无需重命名")
         except Exception as e:
