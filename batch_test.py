@@ -23,8 +23,14 @@ def evaluate_accuracy(db_path="feature_db.pkl", top_k=99, scan_dir=None, verbose
         if vis:
             scan_file = os.path.join(scan_dir, scan_file)
             cad_file = result["best_path"]
+            transformation = result.get("transformation")
+            # 如果变换矩阵为None，使用单位矩阵
+            if transformation is None:
+                import numpy as np
+                transformation = np.eye(4)
             print(f"可视化配准结果: {scan_file} <-> {cad_file}")
-            visualizer = DualViewportVisualizer(scan_file, cad_file)
+            print(f"变换矩阵:\n{transformation}")
+            visualizer = DualViewportVisualizer(scan_file, cad_file, transformation=transformation)
             visualizer.run()
             
             
